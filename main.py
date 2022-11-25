@@ -105,6 +105,7 @@ class SROS:
             bgp_peers_leaves = []
             pass_next_line = False
             total_line = ""
+            spine_neighbors = 0
             for num, command in enumerate(self.commands):
                 if active_connection.send(f"{command} \r\n") > 0:
                     
@@ -121,6 +122,14 @@ class SROS:
                             self.card_info(line, name_wbx)
                         if num == 4 and "Count" in line:
                             self.mda_info(line, name_wbx)
+                        if 'L' in name_wbx:
+                            if num == 5 and "Count" in line: #LEAVES
+                                self.port_info(line, name_wbx, 8)
+                        elif 'S' in name_wbx:
+                            if num == 6 and "Number of neighbors : " in line: #neighbors
+                                spine_neighbors = line.split(" ")[4]
+                            if num == 7 and "Count" in line: #LEAVES
+                                self.port_info(line, name_wbx, int(spine_neighbors))
 
             self.export_file(name_wbx, total_line)
             active_connection.close()
@@ -138,7 +147,7 @@ class SROS:
             print(" OK: We have 5 Fan trays UP.")
             print(" OK: We have 2 Power supplies UP.")
         else:
-            print(f" NOT OK: Requires further analysis [go to folder tmp/{name_wbx}]")
+            print(f" NOT OK: Requires further analysis [go to folder tmp/{name_wbx[0:10]}/{name_wbx}.log")
         print("```")
 
     @staticmethod
@@ -149,7 +158,7 @@ class SROS:
             print(" OK: The iom-32-100g admin & operational is UP.")
             print(" OK: The sfm-210-WBX admin & operational is UP.")
         else:
-            print(f" NOT OK: Requires further analysis [go to folder tmp/{name_wbx}]")
+            print(f" NOT OK: Requires further analysis [go to folder tmp/{name_wbx[0:10]}/{name_wbx}.log")
         print("```")
 
     @staticmethod
@@ -160,12 +169,30 @@ class SROS:
             print(" OK: The mda 1 m16-100g-qsfp28 admin & operational is UP.")
             print(" OK: The mda 2 m16-100g-qsfp28 admin & operational is UP.")
         else:
-            print(f" NOT OK: Requires further analysis [go to folder tmp/{name_wbx}]")
+            print(f" NOT OK: Requires further analysis [go to folder tmp/{name_wbx[0:10]}/{name_wbx}.log")
+        print("```")
+
+    @staticmethod
+    def port_info(line, name_wbx, number):
+        print("##### PORT:")
+        print("```")
+        if "L" in name_wbx: #LEAF
+            if str(number) +" lines" in line:
+                print(f" OK: The {number} uplinks 100GBASE-CR4 ports  with lag 97 & 98 are UP.")
+            else:
+                print(f" NOT OK: Requires further analysis [go to folder tmp/{name_wbx}]")
+        elif 'S' in name_wbx: #SPINE
+            if str(number) + " lines" in line:
+                print(f" OK: The 4 uplinks 100GBASE-CR4 ports are UP.")
+                print(f" OK: The {number-4} downlinks 100GBASE-CR4 ports are UP.")
+            else:
+                print(f" NOT OK: Requires further analysis [go to folder tmp/{name_wbx[0:10]}/{name_wbx}.log")
         print("```")
 
     def export_file(self, name, data):
         try:
             os.makedirs(f"tmp/{name[0:10]}", exist_ok = True)
+            os.system(f'mdpdf -o tmp/report.pdf tmp/report.md')
         except OSError as error:
             print(f"Directory tmp/{name[0:10]} can not be created")
 
@@ -193,7 +220,9 @@ if __name__ == '__main__':
         'show chassis | match ": up"  | count',
         'show card | match up  | count',
         'show mda | match up  | count',
-        # 'show port | match 1/2/33 post-lines 7 | match Up | count',
+        'show port | match 1/2/33 post-lines 7  | match "Up    Yes  Up" | count', # FOR UPLINKS LEAVES
+        'show system lldp neighbor | match "Number of neighbors"', # to get info from spines
+        'show port | match "Up    Yes  Up" | match 1/  | count', # FOR UPLINKS AND DOWNLINKS SPINES
         # 'show bof',
         # 'show system ntp servers',
         # 'show router bgp summary',
